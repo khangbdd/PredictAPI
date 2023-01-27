@@ -30,3 +30,5 @@ python-dotenv==0.20.0
 python-jose==3.3.0
 sqlmodel==0.0.6
 click
+requests
+pmdarima
