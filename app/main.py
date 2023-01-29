@@ -1,10 +1,11 @@
 from fastapi import FastAPI
-from Models.PredictionRequest import PredictionRequest
-from Logics.PredictionLogic import PredictionPresenter
 from Constant import *
+from PredictionLogic import PredictionPresenter
+from Models.PredictionRequest import PredictionRequest
+
+
 import uvicorn
 import asyncio
-from Constant import *
 
 app = FastAPI()
 
