@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from Constant import *
-from PredictionLogic import PredictionPresenter
+from Logics.PredictionLogic import PredictionPresenter
 from Models.PredictionRequest import PredictionRequest
 
 
