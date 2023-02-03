@@ -34,7 +34,7 @@ class PredictionPresenter:
             # Xử lý dữ liệu và tạo data frame từ Prediction Request
             df_comp = self.convertListToSaleDataFrame(request.time_series, request.frequency)
             # Xử dụng auto sarima để chọn ra model tốt nhất theo AICC
-            sarima_model = auto_arima(df_comp, seasonal=True, m=7, max_p= 5, max_q=5, max_d=2, max_P=5, max_Q=5, max_D=2, n_jobs=-1, error_action='ignore', information_criterion='aicc', suppress_warnings=True, stepwise= False )
+            sarima_model = auto_arima(df_comp,start_q=0, m=1, max_p=20, max_q=0, max_d=2,maxiter=100,n_jobs=-1,alpha=0.05,trace=True, error_action='ignore', information_criterion='aicc', suppress_warnings=True, stepwise= True )
             # Tiến hành dự báo sử dụng model được chọn
             self.tsa_df_results = pd.DataFrame(sarima_model.predict(n_periods = request.horizon))
             self.isPredictingByTSAComplete = True
@@ -83,6 +83,8 @@ class PredictionPresenter:
                     results = self.convertDataFrameToListSaleDTO(df_results)
                 except:
                     results = []
+            else:
+                return
         else:
             results = []
         json = {"predictionId": predictionRecordId, "results": results}
