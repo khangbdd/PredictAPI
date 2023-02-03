@@ -5,25 +5,34 @@ from dateutil.relativedelta import relativedelta
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 from kneed import KneeLocator
+from sklearn.model_selection import ParameterGrid
 import pickle as pk
 import xgboost
+import sys
 
 model_config_gblinear = {
-    'random_state': 0,
-    'objective': 'reg:squarederror',  # default='reg:squarederror'
-    'booster': 'gblinear',  # default='gbtree', ['dart', 'gbtree', 'gblinear']
-    'updater': 'coord_descent',
-    'n_estimators': 5000, # 2500,5000
-    'eta': 0.0001,  # default=0.3, [0, 1], learning rate, typically [0.01, 0.2]
-    
-    'reg_alpha': 0,  # default=0, L1-norm 100
-    'reg_lambda': 0,  # default=1, L2-norm
-    #"subsample": 1, #0.8, 1,
-    'nthread': 1,
-    'feature_selector': 'cyclic',
-    'updater': 'coord_descent',
-    #'enable_categorical': True
+    'random_state': [0],
+    'objective': ['reg:squarederror'], 
+    'booster': ['gblinear'],
+    'updater': ['coord_descent'],
+    'n_estimators': [5000, 8000],
+    'eta': [0.002], 
+    'reg_alpha': [0], 
+    'reg_lambda': [1], 
+    'nthread': [1],
+    'feature_selector': ['thrifty'],
     }
+
+model_config_gbtree = {
+    'random_state': [0],
+    'booster': ['gbtree'],
+    'n_estimators': [500, 300],
+    'eta': [0.002], 
+    'reg_alpha': [0], 
+    'reg_lambda': [1], 
+    'nthread': [1],
+    }
+
 
 def create_features(df: pd.DataFrame, frequency) -> pd.DataFrame:
     """
@@ -253,33 +262,67 @@ def train_test_split(time_series: pd.DataFrame, frequency: str):
     test_size = len(time_series) - train_size - val_size
     return val_size, test_size
 
+def fit_full_trainval(X, y, test_size, model_config):
+    X_trainval, y_trainval = X[:-test_size], y[:-test_size]
+    X_test, y_test = X[-test_size:], y[-test_size:]
+    regr = xgboost.XGBRegressor(**model_config)
+    results = regr.fit(
+        X_trainval,
+        y_trainval,
+    )
+    y_trainval_fitted = regr.predict(X_trainval)
+    y_test_forecast = regr.predict(X_test)
+    metric = cal_performance(y_test_forecast, y_test, metric_for_set='test')
+    return regr, y_trainval_fitted, y_test_forecast, metric
+
+def cal_performance(y_true, y_predict, metric_for_set) -> float:
+    return np.mean(np.abs(y_predict-y_true)) 
+
 def xgboost_approach(
                 data,
                 horizon, 
                 frequency 
                 ):
 
-    model_config = model_config_gblinear
+    list_model_config = list(ParameterGrid(model_config_gbtree)) + list(ParameterGrid(model_config_gblinear))
 
-    time_series = convertListToSaleDataFrame(data, frequency)
+    best_model_config = {}
 
-    ts= create_features(df=time_series, frequency=frequency)
+    min_mae = sys.maxsize
+    for model_config in list_model_config:
 
-    val_size, test_size = train_test_split(ts, frequency=frequency)
+      time_series = convertListToSaleDataFrame(data, frequency)
 
-    ts_pca = pca_transfomation(ts, val_size, test_size, normalization=False, frequency=frequency)
+      ts= create_features(df=time_series, frequency=frequency)
 
-    X, y = ts_pca.drop(columns=['sale']), ts_pca['sale']
+      val_size, test_size = train_test_split(ts, frequency=frequency)
 
-    features_to_removed = ['sale']
+      ts_pca = pca_transfomation(ts, val_size, test_size, normalization=False, frequency=frequency)
 
-    # model_config['best_iteration'] = regr.best_iteration + 1
+      X, y = ts_pca.drop(columns=['sale']), ts_pca['sale']
+
+      features_to_removed = ['sale']
+
+      # model_config['best_iteration'] = regr.best_iteration + 1
+
+      reg, y_trainval_fitted, y_test_forecast, test_metric = fit_full_trainval(
+      X=X,
+      y=y,
+      test_size=test_size,
+      model_config=model_config,
+      )
+
+      if (min_mae > test_metric):
+        best_model_config = model_config
+        min_mae = test_metric
 
     regr, X_fitted = fit_full_ts(
         X=X,
         y=y,
-        model_config=model_config,
+        model_config=best_model_config,
     )
+
+    print(min_mae)
 
 
     future_forecasting = make_future_forecast(
