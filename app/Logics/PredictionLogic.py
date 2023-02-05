@@ -1,7 +1,8 @@
 from fastapi import FastAPI
 from Models.PredictionRequest import *
 from Models.PredictionResponse import *
-from Logics.MLPrediction import *
+from Logics.XGBPrediction import *
+from Logics.SVRPrediction import *
 from pmdarima.arima import auto_arima
 import numpy as np
 import pandas as pd
@@ -10,20 +11,32 @@ import requests
 
 class PredictionPresenter:
     tsa_df_results: pd.DataFrame
-    ml_df_results: pd.DataFrame
+    xgb_df_results: pd.DataFrame
+    svr_df_results: pd.DataFrame
     isPredictionFail = False
-    isPredictingByMLComplete = False
+    isPredictingByXGBComplete = False
+    isPredictingBySVRComplete = False
     isPredictingByTSAComplete = False
 
     async def predict(self, request: PredictionRequest):
         asyncio.create_task(self.predictUsingTSA(request))
-        asyncio.create_task(self.predictUsingML(request))
+        asyncio.create_task(self.predictUsingXGB(request))
+        asyncio.create_task(self.predictUsingSVR(request))
         return
 
-    async def predictUsingML(self, request: PredictionRequest):
+    async def predictUsingSVR(self, request: PredictionRequest):
         try:
-            self.ml_df_results = xgboost_approach(request.time_series, request.horizon, request.frequency)
-            self.isPredictingByMLComplete = True
+            self.svr_df_results = svr_approach(request.time_series, request.horizon, request.frequency)
+            self.isPredictingBySVRComplete = True
+        except:
+            self.isPredictionFail = True
+        await self.onPredictionComplete(request.predictionId)
+        return
+
+    async def predictUsingXGB(self, request: PredictionRequest):
+        try:
+            self.xgb_df_results = xgboost_approach(request.time_series, request.horizon, request.frequency)
+            self.isPredictingByXGBComplete = True
         except:
             self.isPredictionFail = True
         await self.onPredictionComplete(request.predictionId)
@@ -55,11 +68,11 @@ class PredictionPresenter:
         df_comp = df_comp.asfreq(frequency)
         return df_comp
 
-    def assemblyTSAandMLPredictionResult(self, tsa_result_df: pd.DataFrame, ml_result_df: pd.DataFrame)-> pd.DataFrame:
+    def assemblyTSAandMLPredictionResult(self, tsa_result_df: pd.DataFrame, ml_result_df: pd.DataFrame, svr_result_df: pd.DataFrame)-> pd.DataFrame:
         assembly_df = tsa_result_df
         sales = []
         for i in range(len(assembly_df)):
-            sale = (tsa_result_df[0].get(i) + ml_result_df.sale.get(i))/2
+            sale = (tsa_result_df[0].get(i) + svr_result_df.sale.get(i) * 2 + ml_result_df.sale.get(i) * 3)/6
             sales.append(sale)
         assembly_df[0] = sales
         return assembly_df
@@ -77,9 +90,9 @@ class PredictionPresenter:
         url = "http://host.docker.internal:8080/api/v1/prediction/process-response"
         results = []
         if(self.isPredictionFail == False):
-            if(self.isPredictingByMLComplete and self.isPredictingByTSAComplete):
+            if(self.isPredictingByXGBComplete and self.isPredictingByTSAComplete and self.isPredictingBySVRComplete):
                 try:
-                    df_results = self.assemblyTSAandMLPredictionResult(self.tsa_df_results, self.ml_df_results)
+                    df_results = self.assemblyTSAandMLPredictionResult(self.tsa_df_results, self.xgb_df_results, self.svr_df_results)
                     results = self.convertDataFrameToListSaleDTO(df_results)
                 except:
                     results = []
